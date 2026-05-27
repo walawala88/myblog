@@ -80,6 +80,17 @@ backend/check_migration.py
 backend/migrate_to_oss.py
 backend/migrate_to_oss_safe.py
 
+# 临时文档（开发过程中使用）
+GIT_PUSH_GUIDE.md
+SECURITY_AUDIT.md
+backend/OSS_VERIFICATION_REPORT.md
+backend/OSS_INTEGRATION.md
+backend/OSS_MIGRATION_SUMMARY.md
+backend/QUICK_START_OSS.md
+backend/MIGRATION_GUIDE.md
+backend/README_MIGRATION.md
+backend/VERIFICATION_CHECKLIST.md
+
 # 操作系统临时文件
 *.swp
 *.swo
