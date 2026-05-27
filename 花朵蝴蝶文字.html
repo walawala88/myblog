@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liquid Morphing Butterfly Fix</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #020202; font-family: 'Segoe UI', sans-serif; }
+        canvas { display: block; }
+
+        /* UI 面板 */
+        #ui-layer {
+            position: absolute; top: 20px; left: 20px; pointer-events: none; z-index: 10;
+        }
+        .panel {
+            background: rgba(5, 5, 10, 0.75); backdrop-filter: blur(16px);
+            padding: 20px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #eee; width: 260px; pointer-events: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+        h1 {
+            margin: 0 0 15px 0; font-size: 16px; font-weight: 400; letter-spacing: 3px;
+            text-transform: uppercase; color: #fff; text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;
+        }
+
+        .shape-selector { display: flex; gap: 5px; margin-bottom: 15px; }
+        .shape-btn {
+            flex: 1; padding: 8px 0; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+            color: #aaa; border-radius: 4px; cursor: pointer; transition: 0.3s; font-size: 12px;
+        }
+        .shape-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+        .shape-btn.active { background: #00ccff; color: #000; border-color: #00ccff; font-weight: bold; }
+
+        .status-container { margin-bottom: 10px; text-align: center; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 4px; }
+        .status-dot { width: 8px; height: 8px; background: #666; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .status-dot.active { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+        .status-dot.error { background: #ff0055; box-shadow: 0 0 8px #ff0055; }
+        .status-text { font-size: 11px; color: #aaa; }
+
+        .control-group { margin-top: 15px; display: flex; flex-direction: column; gap: 8px; }
+        .color-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #aaa; }
+        input[type="color"] { -webkit-appearance: none; border: none; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; background: none; padding: 0; }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: 1px solid #fff; border-radius: 50%; }
+
+        /* 摄像头调试区 */
+        #cam-container {
+            position: absolute; bottom: 20px; right: 20px;
+            width: 160px; height: 120px; z-index: 5;
+            border-radius: 8px; overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: #000;
+            transform: scaleX(-1);
+        }
+        #cam-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.6; }
+        #output-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 6; }
+    </style>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div class="panel">
+            <h1>Morphing X</h1>
+
+            <div class="shape-selector">
+                <button class="shape-btn active" onclick="switchShape(0, this)">花朵</button>
+                <button class="shape-btn" onclick="switchShape(1, this)">蝴蝶</button>
+                <button class="shape-btn" onclick="switchShape(2, this)">天才cc</button>
+            </div>
+
+            <div class="status-container">
+                <div class="status-dot" id="status-dot"></div>
+                <span class="status-text" id="status-text">初始化组件...</span>
+            </div>
+
+            <div class="control-group">
+                <div class="color-row"><span>核心 (Core)</span><input type="color" id="col-0" value="#ff0055"></div>
+                <div class="color-row"><span>内层 (Inner)</span><input type="color" id="col-1" value="#00ccff"></div>
+                <div class="color-row"><span>外层 (Outer)</span><input type="color" id="col-2" value="#3300ff"></div>
+                <div class="color-row"><span>高光 (High)</span><input type="color" id="col-3" value="#ffffff"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="cam-container">
+        <!-- 视频元素 -->
+        <video id="cam-video" muted autoplay playsinline></video>
+        <canvas id="output-canvas"></canvas>
+    </div>
+
+    <script>
+        // ================= 1. Three.js 场景 =================
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x020205, 0.02);
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 14);
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
+
+        // ================= 2. 形状数据生成 =================
+        const particlesCount = 80000;
+        const shapes = {
+            flower: new Float32Array(particlesCount * 3),
+            butterfly: new Float32Array(particlesCount * 3),
+            text: new Float32Array(particlesCount * 3),
+            butterflyColor: new Float32Array(particlesCount) // 0=中心, 1=边缘
+        };
+
+        // --- A. 生成花朵 ---
+        {
+            const layers = [
+                { id: 0, r: 1.5, petals: 0, type: 'core', ratio: 0.1 },
+                { id: 1, r: 3.5, petals: 3, type: 'normal', ratio: 0.25 },
+                { id: 2, r: 6.0, petals: 5, type: 'normal', ratio: 0.35 },
+                { id: 3, r: 9.0, petals: 0, type: 'scatter', ratio: 0.3 }
+            ];
+            let idx = 0;
+            layers.forEach(layer => {
+                const count = Math.floor(particlesCount * layer.ratio);
+                for (let i = 0; i < count; i++) {
+                    let theta = Math.random() * Math.PI * 2;
+                    let phi = (Math.random() - 0.5) * Math.PI;
+                    let x, y, z;
+
+                    if (layer.type === 'normal') {
+                        let shape = Math.sin(theta * layer.petals) * 0.5 + Math.sin(theta * layer.petals * 2.3 + 1.0) * 0.3;
+                        shape = Math.pow(Math.abs(shape), 0.6);
+                        let r = layer.r * (0.6 + 0.6 * shape) * Math.sqrt(Math.random());
+                        x = r * Math.cos(theta); y = r * Math.sin(theta);
+                        z = (r * r) * 0.08 * (Math.cos(theta * layer.petals) * 0.5) + (Math.random() - 0.5) * 0.5;
+                    } else if (layer.type === 'core') {
+                        let r = layer.r * Math.random();
+                        x = r * Math.cos(theta) * Math.cos(phi); y = r * Math.sin(theta) * Math.cos(phi); z = r * Math.sin(phi);
+                    } else {
+                        let r = layer.r * (0.5 + Math.random());
+                        x = r * Math.cos(theta); y = r * Math.sin(theta); z = (Math.random() - 0.5) * 4.0;
+                    }
+                    shapes.flower[idx*3] = x; shapes.flower[idx*3+1] = y; shapes.flower[idx*3+2] = z;
+                    idx++;
+                }
+            });
+            while(idx < particlesCount) { idx++; }
+        }
+
+        // --- B. 生成蝴蝶 (实体填充+渐变) ---
+        {
+            let idx = 0;
+            let safety = 0;
+            while(idx < particlesCount && safety < particlesCount * 10) {
+                safety++;
+                let t = Math.random() * Math.PI * 2;
+                // 蝴蝶极坐标方程
+                let rMax = Math.exp(Math.cos(t)) - 2 * Math.cos(4*t) - Math.pow(Math.sin(t/12), 5);
+                // 填充：越靠近中心越密
+                let rNorm = Math.pow(Math.random(), 0.6);
+                let r = rMax * rNorm;
+
+                let x = r * Math.sin(t);
+                let y = r * Math.cos(t);
+
+                // Z轴厚度
+                let thickness = (1.0 - rNorm) * 1.5;
+                let z = (Math.random() - 0.5) * thickness;
+                z += Math.abs(x) * 0.3;
+
+                shapes.butterfly[idx*3] = x * 2.0;
+                shapes.butterfly[idx*3+1] = y * 2.0;
+                shapes.butterfly[idx*3+2] = z;
+
+                // 颜色权重
+                shapes.butterflyColor[idx] = rNorm;
+
+                idx++;
+            }
+        }
+
+        // --- C. 生成文字 (水平修正) ---
+        {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const W = 512, H = 256;
+            canvas.width = W; canvas.height = H;
+
+            ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 120px sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText("天才cc", W/2, H/2);
+
+            const data = ctx.getImageData(0, 0, W, H).data;
+            const validPoints = [];
+
+            for(let y=0; y<H; y+=2) {
+                for(let x=0; x<W; x+=2) {
+                    if(data[(y*W + x) * 4] > 128) {
+                        validPoints.push({ x: (x - W/2) * 0.05, y: -(y - H/2) * 0.05 });
+                    }
+                }
+            }
+
+            if(validPoints.length === 0) for(let i=0;i<100;i++) validPoints.push({x:0,y:0});
+
+            for(let i=0; i<particlesCount; i++) {
+                const p = validPoints[i % validPoints.length];
+                shapes.text[i*3] = p.x + (Math.random()-0.5)*0.1;
+                shapes.text[i*3+1] = p.y + (Math.random()-0.5)*0.1;
+                shapes.text[i*3+2] = (Math.random() - 0.5) * 1.0;
+            }
+        }
+
+        // ================= 3. Geometry =================
+        const geometry = new THREE.BufferGeometry();
+        const currentPositions = new Float32Array(particlesCount * 3);
+        currentPositions.set(shapes.flower);
+
+        const randoms = [], layerIndices = [], sizes = [], edgeFactors = [], shapeMixAttr = [];
+
+        for (let i = 0; i < particlesCount; i++) {
+            randoms.push(Math.random(), Math.random(), Math.random());
+            let layerId = 0;
+            if(i > particlesCount * 0.1) layerId = 1;
+            if(i > particlesCount * 0.35) layerId = 2;
+            if(i > particlesCount * 0.7) layerId = 3;
+            layerIndices.push(layerId);
+
+            let isEdge = Math.random() > 0.95 ? 1.0 : 0.0;
+            edgeFactors.push(isEdge);
+            sizes.push(Math.random());
+            shapeMixAttr.push(0);
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
+        geometry.setAttribute('aRandom', new THREE.Float32BufferAttribute(randoms, 3));
+        geometry.setAttribute('aLayer', new THREE.Float32BufferAttribute(layerIndices, 1));
+        geometry.setAttribute('aSize', new THREE.Float32BufferAttribute(sizes, 1));
+        geometry.setAttribute('aEdge', new THREE.Float32BufferAttribute(edgeFactors, 1));
+        geometry.setAttribute('aShapeMix', new THREE.Float32BufferAttribute(shapeMixAttr, 1));
+
+        // ================= 4. Shaders (核心修改：蝴蝶扩散) =================
+        const vertexShader = `
+            uniform float uTime;
+            uniform float uScale;
+            uniform float uShapeId;
+
+            attribute vec3 aRandom;
+            attribute float aLayer;
+            attribute float aSize;
+            attribute float aEdge;
+            attribute float aShapeMix;
+
+            varying float vLayer;
+            varying float vEdge;
+            varying float vShapeMix;
+            varying float vDebugShape;
+
+            // Noise Utils
+            vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+            vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+            float snoise(vec3 v) {
+                const vec2 C = vec2(1.0/6.0, 1.0/3.0); const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+                vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx);
+                vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.0-g;
+                vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
+                vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy;
+                i=mod289(i);
+                vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
+                float n_=0.142857142857; vec3 ns=n_*D.wyz-D.xzx;
+                vec4 j=p-49.0*floor(p*ns.z*ns.z); vec4 x_=floor(j*ns.z);
+                vec4 y_=floor(j-7.0*x_); vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy;
+                vec4 h=1.0-abs(x)-abs(y); vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw);
+                vec4 s0=floor(b0)*2.0+1.0; vec4 s1=floor(b1)*2.0+1.0; vec4 sh=-step(h,vec4(0.0));
+                vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+                vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a0.zw,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+                vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+                p0*=norm.x; p1*=norm.y; p2*=norm.z; p3*=norm.w;
+                vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
+                m=m*m; return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+            }
+            vec3 curl(vec3 p) {
+                float eps=0.1; vec3 n=vec3(0.0);
+                n.x=snoise(vec3(p.x,p.y+eps,p.z))-snoise(vec3(p.x,p.y-eps,p.z));
+                n.y=snoise(vec3(p.x,p.y,p.z+eps))-snoise(vec3(p.x,p.y,p.z-eps));
+                n.z=snoise(vec3(p.x+eps,p.y,p.z))-snoise(vec3(p.x-eps,p.y,p.z));
+                return n*10.0;
+            }
+
+            void main() {
+                vLayer = aLayer;
+                vEdge = aEdge;
+                vShapeMix = aShapeMix;
+                vDebugShape = uShapeId;
+
+                vec3 pos = position;
+
+                // 1. 自转
+                float rotSpeed = (uShapeId > 1.5) ? 0.0 : 0.05;
+                float dist = length(pos.xy);
+                float angle = uTime * rotSpeed + dist * 0.05 * (1.0 - uScale);
+                float s = sin(angle); float c = cos(angle);
+                pos.xy = mat2(c, -s, s, c) * pos.xy;
+
+                vec3 noise = curl(pos * 0.2 + uTime * 0.1);
+
+                if (uShapeId < 0.5) {
+                    // 花朵扩散
+                    if (aLayer > 2.5) {
+                        pos += noise * uScale * 5.0;
+                        pos *= (1.0 + uScale * 2.2);
+                    } else {
+                        pos += noise * uScale * 0.8;
+                        pos *= (0.4 + uScale * 1.5);
+                    }
+                }
+                else if (uShapeId < 1.5) {
+                    // === 蝴蝶扩散修复 ===
+                    float wingSide = sign(pos.x);
+                    float flapSpeed = 12.0;
+
+                    // 1. 基础翅膀动作
+                    float baseAngle = (1.0 - uScale) * 1.0;
+                    float dynamicFlap = sin(uTime * flapSpeed) * 0.2;
+                    float theta = (baseAngle + dynamicFlap) * -wingSide;
+                    float cz = cos(theta); float sz = sin(theta);
+
+                    vec3 rotPos = pos;
+                    rotPos.x = pos.x * cz - pos.z * sz;
+                    rotPos.z = pos.x * sz + pos.z * cz;
+                    pos = rotPos;
+
+                    // 2. 扩散逻辑：当手张开 (uScale > 0) 时，增加爆炸扩散效果
+                    if (uScale > 0.1) {
+                         // 扩散力度
+                         float spread = (uScale - 0.1);
+
+                         // 加上强烈的噪波位移，模拟打散
+                         pos += noise * spread * 4.0;
+
+                         // 整体体积向外膨胀
+                         pos *= (1.0 + spread * 1.2);
+
+                         // 边缘粒子(aShapeMix大)飞得更远，制造拖尾感
+                         pos += normalize(pos) * spread * aShapeMix * 2.0;
+                    }
+
+                    // 整体浮动
+                    pos.y += sin(uTime * 1.5) * 0.3;
+                }
+                else {
+                    // 文字扩散
+                    if (uScale > 0.1) {
+                         pos += (noise + vec3(0,0,1)) * uScale * 3.0;
+                         float chaos = uScale * 2.0;
+                         pos.x += snoise(vec3(uTime, pos.y, pos.z)) * chaos;
+                         pos.y += snoise(vec3(pos.x, uTime, pos.z)) * chaos;
+                    }
+                }
+
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                gl_Position = projectionMatrix * mvPosition;
+
+                float pSize = 1.0;
+                if (uShapeId < 0.5) {
+                    pSize = aEdge > 0.5 ? 1.0 : (3.0 * aSize + uScale * 1.5);
+                } else if (uShapeId < 1.5) {
+                    // 蝴蝶：扩散时粒子变大一点增加冲击力
+                    pSize = (1.0 - aShapeMix) * 3.0 + 0.5 + uScale * 2.0;
+                } else {
+                    pSize = 2.0;
+                }
+
+                gl_PointSize = pSize * (15.0 / -mvPosition.z);
+            }
+        `;
+
+        const fragmentShader = `
+            uniform vec3 uCol0;
+            uniform vec3 uCol1;
+            uniform vec3 uCol2;
+            uniform vec3 uCol3;
+
+            varying float vLayer;
+            varying float vEdge;
+            varying float vShapeMix;
+            varying float vDebugShape;
+
+            void main() {
+                vec2 uv = gl_PointCoord.xy - 0.5;
+                float d = length(uv);
+                if (d > 0.5) discard;
+
+                float alpha = 1.0 - smoothstep(0.3, 0.5, d);
+                vec3 finalColor = uCol0;
+
+                if (vDebugShape < 0.5) {
+                    if (vLayer > 0.5 && vLayer < 1.5) finalColor = uCol1;
+                    else if (vLayer > 1.5 && vLayer < 2.5) finalColor = uCol2;
+                    else if (vLayer > 2.5) finalColor = uCol3;
+                    if (vEdge > 0.5) { finalColor = vec3(1.0, 0.9, 0.5) * 2.0; alpha *= 1.5; }
+                }
+                else if (vDebugShape < 1.5) {
+                    // 蝴蝶渐变
+                    vec3 cCenter = mix(uCol0, uCol1, vShapeMix * 1.5);
+                    vec3 cEdge = mix(uCol1, uCol2, (vShapeMix - 0.5) * 2.0);
+                    finalColor = mix(cCenter, cEdge, smoothstep(0.3, 0.8, vShapeMix));
+                    alpha *= (1.0 - vShapeMix * 0.5);
+                }
+                else {
+                    finalColor = uCol3;
+                    alpha *= 0.8;
+                }
+
+                gl_FragColor = vec4(finalColor, alpha);
+            }
+        `;
+
+        const uniforms = {
+            uTime: { value: 0 },
+            uScale: { value: 0.5 },
+            uShapeId: { value: 0.0 },
+            uCol0: { value: new THREE.Color('#ff0055') },
+            uCol1: { value: new THREE.Color('#00ccff') },
+            uCol2: { value: new THREE.Color('#3300ff') },
+            uCol3: { value: new THREE.Color('#ffffff') }
+        };
+
+        const material = new THREE.ShaderMaterial({
+            vertexShader, fragmentShader, uniforms,
+            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+        });
+        const particleSystem = new THREE.Points(geometry, material);
+        scene.add(particleSystem);
+
+        // ================= 5. 交互逻辑 =================
+        let targetShapeData = shapes.flower;
+
+        window.switchShape = function(id, btn) {
+            document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            uniforms.uShapeId.value = id;
+            if(id === 0) targetShapeData = shapes.flower;
+            if(id === 1) targetShapeData = shapes.butterfly;
+            if(id === 2) targetShapeData = shapes.text;
+        };
+
+        // 颜色绑定
+        const ids = ['col-0','col-1','col-2','col-3'];
+        const uKeys = ['uCol0','uCol1','uCol2','uCol3'];
+        ids.forEach((id, i) => {
+            document.getElementById(id).addEventListener('input', (e) => uniforms[uKeys[i]].value.set(e.target.value));
+        });
+
+        const clock = new THREE.Clock();
+        let targetScale = 0.5;
+        let currentScale = 0.5;
+        let isHandActive = false;
+        let handLostFrames = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const t = clock.getElapsedTime();
+
+            if (!isHandActive) {
+                handLostFrames++;
+                if (handLostFrames > 20) {
+                    targetScale = 0.4 + Math.sin(t * 1.5) * 0.4;
+                    if(targetScale < 0) targetScale = 0;
+                }
+            } else {
+                handLostFrames = 0;
+            }
+
+            currentScale += (targetScale - currentScale) * 0.1;
+            uniforms.uTime.value = t;
+            uniforms.uScale.value = currentScale;
+
+            // 形态插值
+            const positions = geometry.attributes.position.array;
+            const mixAttr = geometry.attributes.aShapeMix.array;
+
+            for(let i=0; i < particlesCount; i++) {
+                const idx = i * 3;
+                positions[idx] += (targetShapeData[idx] - positions[idx]) * 0.08;
+                positions[idx+1] += (targetShapeData[idx+1] - positions[idx+1]) * 0.08;
+                positions[idx+2] += (targetShapeData[idx+2] - positions[idx+2]) * 0.08;
+
+                let targetMix = (uniforms.uShapeId.value > 0.5 && uniforms.uShapeId.value < 1.5)
+                                ? shapes.butterflyColor[i] : 0;
+                mixAttr[i] += (targetMix - mixAttr[i]) * 0.05;
+            }
+            geometry.attributes.position.needsUpdate = true;
+            geometry.attributes.aShapeMix.needsUpdate = true;
+
+            // 旋转
+            if (uniforms.uShapeId.value > 1.5) scene.rotation.y = Math.sin(t*0.5) * 0.05;
+            else scene.rotation.y = Math.sin(t * 0.1) * 0.15;
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // ================= 6. 手势识别 =================
+        const videoElement = document.getElementById('cam-video');
+        const canvasElement = document.getElementById('output-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+
+        // 初始化 Hands
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(results => {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                isHandActive = true;
+                statusDot.className = 'status-dot active';
+                statusText.innerText = "手势已控制";
+
+                const lm = results.multiHandLandmarks[0];
+                if(window.drawConnectors) drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+                if(window.drawLandmarks) drawLandmarks(canvasCtx, lm, {color: '#FF0000', lineWidth: 1});
+
+                // 计算手掌开合
+                const wrist = lm[0];
+                const middleTip = lm[12];
+                const dist = Math.sqrt(Math.pow(wrist.x - middleTip.x, 2) + Math.pow(wrist.y - middleTip.y, 2));
+                // 映射
+                let val = (dist - 0.2) / 0.35;
+                targetScale = Math.max(0, Math.min(1.0, val));
+            } else {
+                isHandActive = false;
+                statusDot.className = 'status-dot';
+                statusText.innerText = "检测中...";
+            }
+            canvasCtx.restore();
+        });
+
+        async function startCamera() {
+            try {
+                statusText.innerText = "请求摄像头权限...";
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 320, height: 240, facingMode: 'user' }
+                });
+
+                videoElement.srcObject = stream;
+
+                videoElement.onloadeddata = () => {
+                    statusText.innerText = "加载模型中 (可能需要几秒)...";
+                    canvasElement.width = videoElement.videoWidth;
+                    canvasElement.height = videoElement.videoHeight;
+                    processVideo();
+                };
+            } catch (err) {
+                console.error(err);
+                statusText.innerText = "摄像头启动失败: " + err.message;
+                statusDot.className = 'status-dot error';
+            }
+        }
+
+        async function processVideo() {
+            if (videoElement.readyState >= 2) {
+                try {
+                    await hands.send({image: videoElement});
+                } catch(e) {
+                    console.error("Hands process error:", e);
+                }
+            }
+            requestAnimationFrame(processVideo);
+        }
+
+        startCamera();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        setTimeout(() => {
+            if (statusText.innerText.includes("加载模型")) {
+                statusText.innerText = "模型加载较慢，请检查网络...";
+            }
+        }, 15000);
+
+    </script>
+</body>
+</html>
