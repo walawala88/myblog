@@ -24,6 +24,8 @@ build/
 .env.local
 .env.*.local
 .env.production
+backend/.env
+backend/.env.local
 
 # 日志文件
 *.log
@@ -34,6 +36,9 @@ backend/uploads/
 backend/music_uploads/
 uploads/
 music_uploads/
+
+# OSS迁移备份（包含敏感数据）
+backend/migration_backups/
 
 # 数据库文件（SQLite）
 *.db
@@ -66,6 +71,14 @@ $RECYCLE.BIN/
 # 编辑器临时文件
 *.tmp
 *.temp
+
+# 临时脚本和测试文件
+backend/update_routes_for_oss.py
+backend/check_paths.py
+backend/auto_migrate.py
+backend/check_migration.py
+backend/migrate_to_oss.py
+backend/migrate_to_oss_safe.py
 
 # 操作系统临时文件
 *.swp

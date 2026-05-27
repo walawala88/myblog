@@ -19,6 +19,13 @@ class Config:
     MUSIC_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_uploads')
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mp3', 'wav', 'flac', 'aac'}
     
+    # 阿里云OSS配置
+    USE_CLOUD_STORAGE = os.environ.get('USE_CLOUD_STORAGE', 'false').lower() == 'true'
+    OSS_ACCESS_KEY_ID = os.environ.get('OSS_ACCESS_KEY_ID', '')
+    OSS_ACCESS_KEY_SECRET = os.environ.get('OSS_ACCESS_KEY_SECRET', '')
+    OSS_BUCKET_NAME = os.environ.get('OSS_BUCKET_NAME', '')
+    OSS_ENDPOINT = os.environ.get('OSS_ENDPOINT', '')
+    
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
     if not os.path.exists(MUSIC_FOLDER):

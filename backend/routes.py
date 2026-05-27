@@ -5,6 +5,8 @@ import os
 import requests as http_requests
 from app import app, db
 from models import User, Category, Tag, Post, Comment, Visitor, Like, Gallery, Honor, SiteSetting, MubuNote, Movie, Music
+from config import Config
+from oss_utils import oss_storage
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -392,18 +394,27 @@ def add_gallery():
         return jsonify({'error': 'No selected file'}), 400
     
     if file and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']:
-        filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        
-        gallery = Gallery(
-            title=title,
-            description=description,
-            image_path=f'/uploads/{filename}'
-        )
-        db.session.add(gallery)
-        db.session.commit()
-        return jsonify({'message': 'Image added'}), 201
+        try:
+            # 使用OSS存储
+            if Config.USE_CLOUD_STORAGE:
+                image_url = oss_storage.upload_file(file.stream, file.filename, 'gallery')
+            else:
+                # 本地存储（保持原有逻辑）
+                filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                image_url = f'/uploads/{filename}'
+            
+            gallery = Gallery(
+                title=title,
+                description=description,
+                image_path=image_url
+            )
+            db.session.add(gallery)
+            db.session.commit()
+            return jsonify({'message': 'Image added'}), 201
+        except Exception as e:
+            return jsonify({'error': f'Upload failed: {str(e)}'}), 500
     
     return jsonify({'error': 'Invalid file type'}), 400
 
@@ -460,10 +471,17 @@ def add_honor():
     if 'image' in request.files:
         file = request.files['image']
         if file.filename != '' and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']:
-            filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            honor.image_path = f'/uploads/{filename}'
+            try:
+                if Config.USE_CLOUD_STORAGE:
+                    image_url = oss_storage.upload_file(file.stream, file.filename, 'honors')
+                else:
+                    filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
+                    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    file.save(filepath)
+                    image_url = f'/uploads/{filename}'
+                honor.image_path = image_url
+            except Exception as e:
+                return jsonify({'error': f'Upload failed: {str(e)}'}), 500
     
     db.session.add(honor)
     db.session.commit()
@@ -483,10 +501,17 @@ def update_honor(id):
     if 'image' in request.files:
         file = request.files['image']
         if file.filename != '' and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']:
-            filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            honor.image_path = f'/uploads/{filename}'
+            try:
+                if Config.USE_CLOUD_STORAGE:
+                    image_url = oss_storage.upload_file(file.stream, file.filename, 'honors')
+                else:
+                    filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
+                    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    file.save(filepath)
+                    image_url = f'/uploads/{filename}'
+                honor.image_path = image_url
+            except Exception as e:
+                return jsonify({'error': f'Upload failed: {str(e)}'}), 500
     
     db.session.commit()
     return jsonify({'message': 'Honor updated'})
@@ -552,10 +577,17 @@ def upload_file():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     if file and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']:
-        filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        return jsonify({'filename': filename, 'url': f'/uploads/{filename}'}), 201
+        try:
+            if Config.USE_CLOUD_STORAGE:
+                file_url = oss_storage.upload_file(file.stream, file.filename, 'uploads')
+                return jsonify({'filename': file.filename, 'url': file_url}), 201
+            else:
+                filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                return jsonify({'filename': filename, 'url': f'/uploads/{filename}'}), 201
+        except Exception as e:
+            return jsonify({'error': f'Upload failed: {str(e)}'}), 500
     return jsonify({'error': 'Invalid file type'}), 400
 
 @app.route('/uploads/<filename>')
@@ -699,10 +731,16 @@ def add_movie():
         if file.filename != '':
             ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
             if ext in {'png', 'jpg', 'jpeg', 'gif'}:
-                filename = str(datetime.now().timestamp()).replace('.', '') + '_poster_' + file.filename
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(filepath)
-                poster_path = f'/uploads/{filename}'
+                try:
+                    if Config.USE_CLOUD_STORAGE:
+                        poster_path = oss_storage.upload_file(file.stream, file.filename, 'movies/posters')
+                    else:
+                        filename = str(datetime.now().timestamp()).replace('.', '') + '_poster_' + file.filename
+                        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                        file.save(filepath)
+                        poster_path = f'/uploads/{filename}'
+                except Exception as e:
+                    return jsonify({'error': f'Upload failed: {str(e)}'}), 500
     
     movie = Movie(
         title=title,
@@ -794,9 +832,16 @@ def add_music():
     if ext not in {'mp3', 'wav', 'flac', 'aac'}:
         return jsonify({'error': 'Invalid audio format'}), 400
     
-    filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
-    filepath = os.path.join(app.config['MUSIC_FOLDER'], filename)
-    file.save(filepath)
+    try:
+        if Config.USE_CLOUD_STORAGE:
+            file_url = oss_storage.upload_file(file.stream, file.filename, 'music')
+        else:
+            filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
+            filepath = os.path.join(app.config['MUSIC_FOLDER'], filename)
+            file.save(filepath)
+            file_url = f'/music_uploads/{filename}'
+    except Exception as e:
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
     
     cover_path = ''
     if 'cover' in request.files:
@@ -804,10 +849,16 @@ def add_music():
         if cover_file.filename != '':
             cover_ext = cover_file.filename.rsplit('.', 1)[1].lower() if '.' in cover_file.filename else ''
             if cover_ext in {'png', 'jpg', 'jpeg', 'gif'}:
-                cover_filename = str(datetime.now().timestamp()).replace('.', '') + '_cover_' + cover_file.filename
-                cover_filepath = os.path.join(app.config['UPLOAD_FOLDER'], cover_filename)
-                cover_file.save(cover_filepath)
-                cover_path = f'/uploads/{cover_filename}'
+                try:
+                    if Config.USE_CLOUD_STORAGE:
+                        cover_path = oss_storage.upload_file(cover_file.stream, cover_file.filename, 'music/covers')
+                    else:
+                        cover_filename = str(datetime.now().timestamp()).replace('.', '') + '_cover_' + cover_file.filename
+                        cover_filepath = os.path.join(app.config['UPLOAD_FOLDER'], cover_filename)
+                        cover_file.save(cover_filepath)
+                        cover_path = f'/uploads/{cover_filename}'
+                except Exception as e:
+                    return jsonify({'error': f'Cover upload failed: {str(e)}'}), 500
     
     music = Music(
         title=title,
@@ -816,7 +867,7 @@ def add_music():
         genre=genre,
         description=description,
         cover_path=cover_path,
-        file_path=f'/music_uploads/{filename}'
+        file_path=file_url
     )
     db.session.add(music)
     db.session.commit()
