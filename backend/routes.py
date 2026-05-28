@@ -6,7 +6,7 @@ import requests as http_requests
 from app import app, db
 from models import User, Category, Tag, Post, Comment, Visitor, Like, Gallery, Honor, SiteSetting, MubuNote, Movie, Music
 from config import Config
-from oss_utils import oss_storage
+from oss_utils import get_oss_storage
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -397,7 +397,7 @@ def add_gallery():
         try:
             # 使用OSS存储
             if Config.USE_CLOUD_STORAGE:
-                image_url = oss_storage.upload_file(file.stream, file.filename, 'gallery')
+                image_url = get_oss_storage().upload_file(file.stream, file.filename, 'gallery')
             else:
                 # 本地存储（保持原有逻辑）
                 filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
@@ -473,7 +473,7 @@ def add_honor():
         if file.filename != '' and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']:
             try:
                 if Config.USE_CLOUD_STORAGE:
-                    image_url = oss_storage.upload_file(file.stream, file.filename, 'honors')
+                    image_url = get_oss_storage().upload_file(file.stream, file.filename, 'honors')
                 else:
                     filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
                     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -503,7 +503,7 @@ def update_honor(id):
         if file.filename != '' and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']:
             try:
                 if Config.USE_CLOUD_STORAGE:
-                    image_url = oss_storage.upload_file(file.stream, file.filename, 'honors')
+                    image_url = get_oss_storage().upload_file(file.stream, file.filename, 'honors')
                 else:
                     filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
                     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -579,7 +579,7 @@ def upload_file():
     if file and '.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']:
         try:
             if Config.USE_CLOUD_STORAGE:
-                file_url = oss_storage.upload_file(file.stream, file.filename, 'uploads')
+                file_url = get_oss_storage().upload_file(file.stream, file.filename, 'uploads')
                 return jsonify({'filename': file.filename, 'url': file_url}), 201
             else:
                 filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
@@ -733,7 +733,7 @@ def add_movie():
             if ext in {'png', 'jpg', 'jpeg', 'gif'}:
                 try:
                     if Config.USE_CLOUD_STORAGE:
-                        poster_path = oss_storage.upload_file(file.stream, file.filename, 'movies/posters')
+                        poster_path = get_oss_storage().upload_file(file.stream, file.filename, 'movies/posters')
                     else:
                         filename = str(datetime.now().timestamp()).replace('.', '') + '_poster_' + file.filename
                         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -834,7 +834,7 @@ def add_music():
     
     try:
         if Config.USE_CLOUD_STORAGE:
-            file_url = oss_storage.upload_file(file.stream, file.filename, 'music')
+            file_url = get_oss_storage().upload_file(file.stream, file.filename, 'music')
         else:
             filename = str(datetime.now().timestamp()).replace('.', '') + '_' + file.filename
             filepath = os.path.join(app.config['MUSIC_FOLDER'], filename)
@@ -851,7 +851,7 @@ def add_music():
             if cover_ext in {'png', 'jpg', 'jpeg', 'gif'}:
                 try:
                     if Config.USE_CLOUD_STORAGE:
-                        cover_path = oss_storage.upload_file(cover_file.stream, cover_file.filename, 'music/covers')
+                        cover_path = get_oss_storage().upload_file(cover_file.stream, cover_file.filename, 'music/covers')
                     else:
                         cover_filename = str(datetime.now().timestamp()).replace('.', '') + '_cover_' + cover_file.filename
                         cover_filepath = os.path.join(app.config['UPLOAD_FOLDER'], cover_filename)

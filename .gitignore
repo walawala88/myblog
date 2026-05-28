@@ -95,3 +95,9 @@ backend/VERIFICATION_CHECKLIST.md
 *.swp
 *.swo
 *~
+
+# 根目录媒体文件（已迁移到OSS或本地存储）
+*.mp4
+*.MP3
+*.jpg
+*.html
