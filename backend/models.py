@@ -6,7 +6,7 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
-    avatar = db.Column(db.String(255))
+    avatar = db.Column(db.String(500))
     bio = db.Column(db.Text)
     site_name = db.Column(db.String(100))
     site_description = db.Column(db.Text)
@@ -91,7 +91,7 @@ class Like(db.Model):
 class Gallery(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200))
-    image_path = db.Column(db.String(255), nullable=False)
+    image_path = db.Column(db.String(500), nullable=False)
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -100,7 +100,7 @@ class Honor(db.Model):
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
     date = db.Column(db.Date)
-    image_path = db.Column(db.String(255))
+    image_path = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class SiteSetting(db.Model):
